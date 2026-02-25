@@ -2,10 +2,10 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Tetris Slot Classic</title>
+<title>Tetris Slot Natural Tetromino</title>
 <style>
   body { background:#111; color:#eee; font-family:Arial; text-align:center; }
-  #game { margin:20px auto; width:280px; height:400px; background:#222; position:relative; border:3px solid #555; }
+  #game { margin:20px auto; width:200px; height:400px; background:#222; position:relative; border:3px solid #555; }
   .cell { width:20px; height:20px; position:absolute; }
   #startBtn { padding:10px 20px; font-size:20px; cursor:pointer; margin-top:20px; }
   #betSelect { margin-top:10px; font-size:18px; }
@@ -35,9 +35,9 @@
    НАСТРОЙКИ
 ------------------------------ */
 
-const WIN_PROBABILITY = 0.40;
+const WIN_PROBABILITY = 0.55;
 
-const W = 14;
+const W = 10;
 const H = 20;
 
 let grid = [];
@@ -45,7 +45,42 @@ let balance = 1000;
 let running = false;
 
 /* ------------------------------
-   УТИЛИТЫ
+   TETROMINOES
+------------------------------ */
+
+const tetrominoes = [
+  [[1,1,1,1]],
+  [[1,1],[1,1]],
+  [[0,1,0],[1,1,1]],
+  [[1,0,0],[1,1,1]],
+  [[0,0,1],[1,1,1]],
+  [[1,1,0],[0,1,1]],
+  [[0,1,1],[1,1,0]]
+];
+
+
+function rotate(shape) {
+  const h = shape.length;
+  const w = shape[0].length;
+  const res = [];
+  for (let x = 0; x < w; x++) {
+    res[x] = [];
+    for (let y = h - 1; y >= 0; y--) {
+      res[x][h - 1 - y] = shape[y][x];
+    }
+  }
+  return res;
+}
+
+function randomTetromino() {
+  let s = tetrominoes[Math.floor(Math.random() * tetrominoes.length)];
+  const r = Math.floor(Math.random() * 4);
+  for (let i = 0; i < r; i++) s = rotate(s);
+  return s;
+}
+
+/* ------------------------------
+   GRID
 ------------------------------ */
 
 function createGrid() {
@@ -75,28 +110,60 @@ function randomColor() {
 }
 
 /* ------------------------------
-   ПАДЕНИЕ ФИГУРЫ СВЕРХУ
+   ПАДЕНИЕ ФИГУРЫ
 ------------------------------ */
 
-async function dropBlock(x, targetY, color) {
+async function dropTetromino(shape, startX, color) {
   let y = 0;
 
-  while (y < targetY) {
+  while (true) {
     drawGrid();
+
     const game = document.getElementById("game");
-    const c = document.createElement("div");
-    c.className = "cell";
-    c.style.left = x * 20 + "px";
-    c.style.top = y * 20 + "px";
-    c.style.background = color;
-    game.appendChild(c);
+    for (let yy = 0; yy < shape.length; yy++) {
+      for (let xx = 0; xx < shape[yy].length; xx++) {
+        if (!shape[yy][xx]) continue;
+        const c = document.createElement("div");
+        c.className = "cell";
+        c.style.left = (startX + xx) * 20 + "px";
+        c.style.top = (y + yy) * 20 + "px";
+        c.style.background = color;
+        game.appendChild(c);
+      }
+    }
+
+    await new Promise(r => setTimeout(r, 40));
+
+    if (!canMove(shape, startX, y + 1)) break;
 
     y++;
-    await new Promise(r => setTimeout(r, 40));
   }
 
-  grid[targetY][x] = color;
+  place(shape, startX, y, color);
   drawGrid();
+}
+
+function canMove(shape, gx, gy) {
+  for (let y = 0; y < shape.length; y++) {
+    for (let x = 0; x < shape[y].length; x++) {
+      if (!shape[y][x]) continue;
+      const nx = gx + x;
+      const ny = gy + y;
+      if (nx < 0 || nx >= W || ny >= H) return false;
+      if (grid[ny][nx]) return false;
+    }
+  }
+  return true;
+}
+
+function place(shape, gx, gy, color) {
+  for (let y = 0; y < shape.length; y++) {
+    for (let x = 0; x < shape[y].length; x++) {
+      if (shape[y][x]) {
+        grid[gy + y][gx + x] = color;
+      }
+    }
+  }
 }
 
 /* ------------------------------
@@ -114,38 +181,158 @@ async function explodeLine(y) {
 }
 
 /* ------------------------------
-   ВЫИГРЫШНЫЙ РАУНД
+   ВЫИГРЫШНЫЙ РАУНД (натуральный)
 ------------------------------ */
 
 async function playWinningRound(bet) {
   createGrid();
 
-  // создаём почти готовую линию
-  const y = H - 1;
-  for (let x = 0; x < W - 1; x++) {
-    grid[y][x] = randomColor();
+// индексы фигур:
+// 0: I  [[1,1,1,1]]
+// 1: O  [[1,1],[1,1]]
+// 2: T  [[0,1,0],[1,1,1]]
+// 3: J  [[1,0,0],[1,1,1]]
+// 4: L  [[0,0,1],[1,1,1]]
+// 5: S  [[0,1,1],[1,1,0]]  // не используем в паттернах
+// 6: Z  [[1,1,0],[0,1,1]]  // не используем в паттернах
+
+// индексы фигур:
+// 0: I  [[1,1,1,1]]
+// 1: O  [[1,1],[1,1]]
+// 2: T  [[0,1,0],[1,1,1]]
+// 3: J  [[1,0,0],[1,1,1]]
+// 4: L  [[0,0,1],[1,1,1]]
+// 5: S  [[0,1,1],[1,1,0]]  // не используем в паттернах
+// 6: Z  [[1,1,0],[0,1,1]]  // не используем в паттернах
+
+const winningPatterns = [
+  // 1) I + I + O = 4 + 4 + 2 = 10
+  {
+    name: "win1",
+    sequence: [
+      { shape: tetrominoes[0], x: 0 },  // I (0–3)
+      { shape: tetrominoes[0], x: 4 },  // I (4–7)
+      { shape: tetrominoes[1], x: 8 }   // O (8–9)
+    ]
+  },
+
+  // 2) T + T + O + O = 3 + 3 + 2 + 2 = 10
+  {
+    name: "win2",
+    sequence: [
+      { shape: tetrominoes[2], x: 0 },  // T (0–2)
+      { shape: tetrominoes[2], x: 3 },  // T (3–5)
+      { shape: tetrominoes[1], x: 6 },  // O (6–7)
+      { shape: tetrominoes[1], x: 8 }   // O (8–9)
+    ]
+  },
+
+  // 3) J + J + O + O = 3 + 3 + 2 + 2 = 10
+  {
+    name: "win3",
+    sequence: [
+      { shape: tetrominoes[3], x: 0 },  // J (0–2)
+      { shape: tetrominoes[3], x: 3 },  // J (3–5)
+      { shape: tetrominoes[1], x: 6 },  // O (6–7)
+      { shape: tetrominoes[1], x: 8 }   // O (8–9)
+    ]
+  },
+
+  // 4) L + L + O + O = 3 + 3 + 2 + 2 = 10
+  {
+    name: "win4",
+    sequence: [
+      { shape: tetrominoes[4], x: 0 },  // L (0–2)
+      { shape: tetrominoes[4], x: 3 },  // L (3–5)
+      { shape: tetrominoes[1], x: 6 },  // O (6–7)
+      { shape: tetrominoes[1], x: 8 }   // O (8–9)
+    ]
+  },
+
+  // 5) пять O подряд = 2+2+2+2+2 = 10
+  {
+    name: "win5",
+    sequence: [
+      { shape: tetrominoes[1], x: 0 },  // O (0–1)
+      { shape: tetrominoes[1], x: 2 },  // O (2–3)
+      { shape: tetrominoes[1], x: 4 },  // O (4–5)
+      { shape: tetrominoes[1], x: 6 },  // O (6–7)
+      { shape: tetrominoes[1], x: 8 }   // O (8–9)
+    ]
+  },
+
+  // 6) I + T + T = 4 + 3 + 3 = 10
+  {
+    name: "win6",
+    sequence: [
+      { shape: tetrominoes[0], x: 0 },  // I (0–3)
+      { shape: tetrominoes[2], x: 4 },  // T (4–6)
+      { shape: tetrominoes[2], x: 7 }   // T (7–9)
+    ]
+  },
+
+  // 7) I + J + T = 4 + 3 + 3 = 10
+  {
+    name: "win7",
+    sequence: [
+      { shape: tetrominoes[0], x: 0 },  // I (0–3)
+      { shape: tetrominoes[3], x: 4 },  // J (4–6)
+      { shape: tetrominoes[2], x: 7 }   // T (7–9)
+    ]
+  },
+
+  // 8) I + L + T = 4 + 3 + 3 = 10
+  {
+    name: "win8",
+    sequence: [
+      { shape: tetrominoes[0], x: 0 },  // I (0–3)
+      { shape: tetrominoes[4], x: 4 },  // L (4–6)
+      { shape: tetrominoes[2], x: 7 }   // T (7–9)
+    ]
+  },
+
+  // 9) T + I + T = 3 + 4 + 3 = 10
+  {
+    name: "win9",
+    sequence: [
+      { shape: tetrominoes[2], x: 0 },  // T (0–2)
+      { shape: tetrominoes[0], x: 3 },  // I (3–6)
+      { shape: tetrominoes[2], x: 7 }   // T (7–9)
+    ]
+  },
+
+  // 10) J + I + L = 3 + 4 + 3 = 10
+  {
+    name: "win10",
+    sequence: [
+      { shape: tetrominoes[3], x: 0 },  // J (0–2)
+      { shape: tetrominoes[0], x: 3 },  // I (3–6)
+      { shape: tetrominoes[4], x: 7 }   // L (7–9)
+    ]
   }
-  grid[y][W - 1] = null; // дырка
+];
 
-  drawGrid();
+  // выбираем случайный выигрышный сценарий
+  const pattern = winningPatterns[Math.floor(Math.random() * winningPatterns.length)];
 
-  // бросаем блок сверху в дырку
-  await dropBlock(W - 1, y, randomColor());
+  for (const item of pattern.sequence) {
+    await dropTetromino(item.shape, item.x, randomColor());
+  }
 
-  // взрыв
+  // взрыв нижней линии
+  const y = H - 1;
   await explodeLine(y);
 
-  // очистка линии
   grid.splice(y, 1);
   grid.unshift(Array(W).fill(null));
   drawGrid();
 
-  // выплата
   const win = bet * (5 + Math.floor(Math.random() * 10));
   balance += win;
   document.getElementById("win").textContent = "Выигрыш: " + win;
   document.getElementById("balance").textContent = "Баланс: " + balance + " FUN";
 }
+
 
 /* ------------------------------
    ПРОИГРЫШНЫЙ РАУНД
@@ -155,15 +342,11 @@ async function playLosingRound() {
   createGrid();
   drawGrid();
 
-  // хаотично бросаем блоки сверху
-  for (let i = 0; i < 40; i++) {
-    const x = Math.floor(Math.random() * W);
+  for (let i = 0; i < 20; i++) {
+    const shape = randomTetromino();
     const color = randomColor();
-
-    let y = 0;
-    while (y + 1 < H && !grid[y+1][x]) y++;
-
-    await dropBlock(x, y, color);
+    const x = Math.floor(Math.random() * (W - shape[0].length));
+    await dropTetromino(shape, x, color);
   }
 
   document.getElementById("win").textContent = "Выигрыш: 0";
