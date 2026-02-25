@@ -1,1 +1,325 @@
-Test
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Pixel Drops</title>
+<style>
+  body { background:#111; color:#eee; font-family:Arial; text-align:center; }
+
+  #container {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 20px;
+  }
+
+  #game {
+    width: 280px; /* 14 * 20 */
+    height: 400px;
+    background:#222;
+    position:relative;
+    border:3px solid #555;
+  }
+
+  #counterBox {
+    width: 140px;
+    text-align: left;
+    font-size: 18px;
+    padding-top: 10px;
+  }
+
+  .cell {
+    width:20px;
+    height:20px;
+    position:absolute;
+  }
+
+  #startBtn {
+    padding:10px 20px;
+    font-size:20px;
+    cursor:pointer;
+    margin-top:20px;
+  }
+
+  #betSelect {
+    margin-top:10px;
+    font-size:18px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Pixel Drops</h1>
+
+<select id="betSelect">
+  <option value="5">Ставка 5 FUN</option>
+  <option value="10" selected>Ставка 10 FUN</option>
+  <option value="20">Ставка 20 FUN</option>
+  <option value="50">Ставка 50 FUN</option>
+</select>
+
+<br>
+<button id="startBtn">Играть</button>
+
+<h2 id="balance">Баланс: 1000 FUN</h2>
+<h2 id="win">Выигрыш: 0</h2>
+
+<div id="container">
+  <div id="game"></div>
+
+  <div id="counterBox">
+    <div><b>Пиксели:</b></div>
+    <div id="pixelCounter">0/50</div>
+    <br>
+    <div><b>Линии:</b></div>
+    <div id="lineCounter">0</div>
+    <br>
+    <div><b>Выплата за линии:</b></div>
+    <div id="lineWin">0 FUN</div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------
+   НАСТРОЙКИ
+------------------------------ */
+
+const WIN_PROBABILITY = 0.55;
+
+const W = 14;
+const H = 20;
+
+const PIXELS_PER_ROUND = 50;
+const LINE_PAYOUT = 40; // выплата за одну заполненную линию
+
+let grid = [];
+let balance = 1000;
+let running = false;
+
+let droppedPixels = 0;
+let completedLines = 0;
+let lineWinAmount = 0;
+
+/* ------------------------------
+   УТИЛИТЫ
+------------------------------ */
+
+function createGrid() {
+  grid = [];
+  for (let y = 0; y < H; y++) grid[y] = Array(W).fill(null);
+}
+
+function drawGrid() {
+  const game = document.getElementById("game");
+  game.innerHTML = "";
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (grid[y][x]) {
+        const c = document.createElement("div");
+        c.className = "cell";
+        c.style.left = x * 20 + "px";
+        c.style.top = y * 20 + "px";
+        c.style.background = grid[y][x];
+        game.appendChild(c);
+      }
+    }
+  }
+}
+
+function randomColor() {
+  return `hsl(${Math.random()*360},70%,60%)`;
+}
+
+function updatePixelCounter() {
+  document.getElementById("pixelCounter").textContent =
+    `${droppedPixels}/${PIXELS_PER_ROUND}`;
+}
+
+function updateLineStats() {
+  document.getElementById("lineCounter").textContent = completedLines;
+  document.getElementById("lineWin").textContent = lineWinAmount + " FUN";
+}
+
+/* ------------------------------
+   ПАДЕНИЕ ПИКСЕЛЯ СВЕРХУ
+------------------------------ */
+
+async function dropBlock(x, targetY, color) {
+  let y = 0;
+
+  while (y < targetY) {
+    drawGrid();
+    const game = document.getElementById("game");
+    const c = document.createElement("div");
+    c.className = "cell";
+    c.style.left = x * 20 + "px";
+    c.style.top = y * 20 + "px";
+    c.style.background = color;
+    game.appendChild(c);
+
+    y++;
+    await new Promise(r => setTimeout(r, 40));
+  }
+
+  grid[targetY][x] = color;
+  drawGrid();
+}
+
+/* ------------------------------
+   ВЗРЫВ ЛИНИИ
+------------------------------ */
+
+async function explodeLine(y) {
+  for (let i = 0; i < 4; i++) {
+    for (let x = 0; x < W; x++) {
+      grid[y][x] = i % 2 ? "yellow" : "orange";
+    }
+    drawGrid();
+    await new Promise(r => setTimeout(r, 80));
+  }
+}
+
+/* ------------------------------
+   ПРОВЕРКА И ОЧИСТКА ЛИНИЙ
+------------------------------ */
+
+async function checkAndClearLines() {
+  for (let y = 0; y < H; y++) {
+    if (grid[y].every(cell => cell !== null)) {
+
+      // перекрашиваем линию в один случайный цвет
+      const color = randomColor();
+      for (let x = 0; x < W; x++) {
+        grid[y][x] = color;
+      }
+      drawGrid();
+      await new Promise(r => setTimeout(r, 150));
+
+      // взрыв
+      await explodeLine(y);
+
+      // удаляем линию и сдвигаем поле
+      grid.splice(y, 1);
+      grid.unshift(Array(W).fill(null));
+      drawGrid();
+
+      // начисляем выплату за линию
+      completedLines++;
+      lineWinAmount += LINE_PAYOUT;
+      updateLineStats();
+
+      y--; // пересчитываем эту строку после сдвига
+    }
+  }
+}
+
+/* ------------------------------
+   ВЫИГРЫШНЫЙ РАУНД
+------------------------------ */
+
+async function playWinningRound(bet) {
+  createGrid();
+  droppedPixels = 0;
+  completedLines = 0;
+  lineWinAmount = 0;
+  updatePixelCounter();
+  updateLineStats();
+
+  // создаём почти готовую линию
+  const y = H - 1;
+  for (let x = 0; x < W - 1; x++) {
+    grid[y][x] = randomColor();
+    droppedPixels++;
+    updatePixelCounter();
+  }
+  grid[y][W - 1] = null;
+
+  drawGrid();
+
+  // бросаем блок сверху в дырку
+  await dropBlock(W - 1, y, randomColor());
+  droppedPixels++;
+  updatePixelCounter();
+
+  // проверяем линии и платим за них
+  await checkAndClearLines();
+
+  // выплата за сам выигрышный раунд (как было)
+  const win = bet * (5 + Math.floor(Math.random() * 10));
+  balance += win + lineWinAmount; // добавляем выплату за линии к общему выигрышу
+  document.getElementById("win").textContent = "Выигрыш: " + (win + lineWinAmount);
+  document.getElementById("balance").textContent = "Баланс: " + balance + " FUN";
+}
+
+/* ------------------------------
+   ПРОИГРЫШНЫЙ РАУНД
+------------------------------ */
+
+async function playLosingRound() {
+  createGrid();
+  droppedPixels = 0;
+  completedLines = 0;
+  lineWinAmount = 0;
+  updatePixelCounter();
+  updateLineStats();
+  drawGrid();
+
+  for (let i = 0; i < PIXELS_PER_ROUND; i++) {
+    const x = Math.floor(Math.random() * W);
+    const color = randomColor();
+
+    let y = 0;
+    while (y + 1 < H && !grid[y+1][x]) y++;
+
+    await dropBlock(x, y, color);
+
+    droppedPixels++;
+    updatePixelCounter();
+
+    await checkAndClearLines();
+  }
+
+  // в проигрышном раунде платим только за линии (если были)
+  if (lineWinAmount > 0) {
+    balance += lineWinAmount;
+    document.getElementById("win").textContent = "Выигрыш: " + lineWinAmount;
+    document.getElementById("balance").textContent = "Баланс: " + balance + " FUN";
+  } else {
+    document.getElementById("win").textContent = "Выигрыш: 0";
+  }
+}
+
+/* ------------------------------
+   ИНТЕРФЕЙС
+------------------------------ */
+
+document.getElementById("startBtn").onclick = async () => {
+  if (running) return;
+  running = true;
+
+  const bet = parseInt(document.getElementById("betSelect").value);
+
+  if (balance < bet) {
+    alert("Недостаточно FUN");
+    running = false;
+    return;
+  }
+
+  balance -= bet;
+  document.getElementById("balance").textContent = "Баланс: " + balance + " FUN";
+  document.getElementById("win").textContent = "Выигрыш: 0";
+
+  const isWin = Math.random() < WIN_PROBABILITY;
+
+  if (isWin) {
+    await playWinningRound(bet);
+  } else {
+    await playLosingRound();
+  }
+
+  running = false;
+};
+</script>
+
+</body>
+</html>
