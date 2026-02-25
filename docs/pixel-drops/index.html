@@ -84,13 +84,13 @@
    НАСТРОЙКИ
 ------------------------------ */
 
-const WIN_PROBABILITY = 0.55;
+const WIN_PROBABILITY = 0.40;
 
 const W = 14;
 const H = 20;
 
 const PIXELS_PER_ROUND = 50;
-const LINE_PAYOUT = 40; // выплата за одну заполненную линию
+const LINE_PAYOUT = 40;
 
 let grid = [];
 let balance = 1000;
@@ -141,7 +141,7 @@ function updateLineStats() {
 }
 
 /* ------------------------------
-   ПАДЕНИЕ ПИКСЕЛЯ СВЕРХУ
+   ПАДЕНИЕ ПИКСЕЛЯ
 ------------------------------ */
 
 async function dropBlock(x, targetY, color) {
@@ -187,28 +187,23 @@ async function checkAndClearLines() {
   for (let y = 0; y < H; y++) {
     if (grid[y].every(cell => cell !== null)) {
 
-      // перекрашиваем линию в один случайный цвет
       const color = randomColor();
-      for (let x = 0; x < W; x++) {
-        grid[y][x] = color;
-      }
+      for (let x = 0; x < W; x++) grid[y][x] = color;
+
       drawGrid();
       await new Promise(r => setTimeout(r, 150));
 
-      // взрыв
       await explodeLine(y);
 
-      // удаляем линию и сдвигаем поле
       grid.splice(y, 1);
       grid.unshift(Array(W).fill(null));
       drawGrid();
 
-      // начисляем выплату за линию
       completedLines++;
       lineWinAmount += LINE_PAYOUT;
       updateLineStats();
 
-      y--; // пересчитываем эту строку после сдвига
+      y--;
     }
   }
 }
@@ -219,35 +214,35 @@ async function checkAndClearLines() {
 
 async function playWinningRound(bet) {
   createGrid();
+
   droppedPixels = 0;
   completedLines = 0;
   lineWinAmount = 0;
   updatePixelCounter();
   updateLineStats();
 
-  // создаём почти готовую линию
   const y = H - 1;
+
+  // заранее рисуем линию, но НЕ увеличиваем droppedPixels
   for (let x = 0; x < W - 1; x++) {
     grid[y][x] = randomColor();
-    droppedPixels++;
-    updatePixelCounter();
   }
-  grid[y][W - 1] = null;
 
   drawGrid();
 
-  // бросаем блок сверху в дырку
+  // только этот пиксель считается "выпавшим"
   await dropBlock(W - 1, y, randomColor());
   droppedPixels++;
   updatePixelCounter();
 
-  // проверяем линии и платим за них
   await checkAndClearLines();
 
-  // выплата за сам выигрышный раунд (как было)
   const win = bet * (5 + Math.floor(Math.random() * 10));
-  balance += win + lineWinAmount; // добавляем выплату за линии к общему выигрышу
-  document.getElementById("win").textContent = "Выигрыш: " + (win + lineWinAmount);
+  const totalWin = win + lineWinAmount;
+
+  balance += totalWin;
+
+  document.getElementById("win").textContent = "Выигрыш: " + totalWin;
   document.getElementById("balance").textContent = "Баланс: " + balance + " FUN";
 }
 
@@ -257,6 +252,7 @@ async function playWinningRound(bet) {
 
 async function playLosingRound() {
   createGrid();
+
   droppedPixels = 0;
   completedLines = 0;
   lineWinAmount = 0;
@@ -279,7 +275,6 @@ async function playLosingRound() {
     await checkAndClearLines();
   }
 
-  // в проигрышном раунде платим только за линии (если были)
   if (lineWinAmount > 0) {
     balance += lineWinAmount;
     document.getElementById("win").textContent = "Выигрыш: " + lineWinAmount;
