@@ -1,1 +1,205 @@
-Test
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Tetris Slot Classic</title>
+<style>
+  body { background:#111; color:#eee; font-family:Arial; text-align:center; }
+  #game { margin:20px auto; width:280px; height:400px; background:#222; position:relative; border:3px solid #555; }
+  .cell { width:20px; height:20px; position:absolute; }
+  #startBtn { padding:10px 20px; font-size:20px; cursor:pointer; margin-top:20px; }
+  #betSelect { margin-top:10px; font-size:18px; }
+</style>
+</head>
+<body>
+
+<h1>Tetris Slot</h1>
+
+<select id="betSelect">
+  <option value="5">Ставка 5 FUN</option>
+  <option value="10" selected>Ставка 10 FUN</option>
+  <option value="20">Ставка 20 FUN</option>
+  <option value="50">Ставка 50 FUN</option>
+</select>
+
+<br>
+<button id="startBtn">Играть</button>
+
+<h2 id="balance">Баланс: 1000 FUN</h2>
+<h2 id="win">Выигрыш: 0</h2>
+
+<div id="game"></div>
+
+<script>
+/* ------------------------------
+   НАСТРОЙКИ
+------------------------------ */
+
+const WIN_PROBABILITY = 0.40;
+
+const W = 14;
+const H = 20;
+
+let grid = [];
+let balance = 1000;
+let running = false;
+
+/* ------------------------------
+   УТИЛИТЫ
+------------------------------ */
+
+function createGrid() {
+  grid = [];
+  for (let y = 0; y < H; y++) grid[y] = Array(W).fill(null);
+}
+
+function drawGrid() {
+  const game = document.getElementById("game");
+  game.innerHTML = "";
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (grid[y][x]) {
+        const c = document.createElement("div");
+        c.className = "cell";
+        c.style.left = x * 20 + "px";
+        c.style.top = y * 20 + "px";
+        c.style.background = grid[y][x];
+        game.appendChild(c);
+      }
+    }
+  }
+}
+
+function randomColor() {
+  return `hsl(${Math.random()*360},70%,60%)`;
+}
+
+/* ------------------------------
+   ПАДЕНИЕ ФИГУРЫ СВЕРХУ
+------------------------------ */
+
+async function dropBlock(x, targetY, color) {
+  let y = 0;
+
+  while (y < targetY) {
+    drawGrid();
+    const game = document.getElementById("game");
+    const c = document.createElement("div");
+    c.className = "cell";
+    c.style.left = x * 20 + "px";
+    c.style.top = y * 20 + "px";
+    c.style.background = color;
+    game.appendChild(c);
+
+    y++;
+    await new Promise(r => setTimeout(r, 40));
+  }
+
+  grid[targetY][x] = color;
+  drawGrid();
+}
+
+/* ------------------------------
+   ВЗРЫВ ЛИНИИ
+------------------------------ */
+
+async function explodeLine(y) {
+  for (let i = 0; i < 4; i++) {
+    for (let x = 0; x < W; x++) {
+      grid[y][x] = i % 2 ? "yellow" : "orange";
+    }
+    drawGrid();
+    await new Promise(r => setTimeout(r, 80));
+  }
+}
+
+/* ------------------------------
+   ВЫИГРЫШНЫЙ РАУНД
+------------------------------ */
+
+async function playWinningRound(bet) {
+  createGrid();
+
+  // создаём почти готовую линию
+  const y = H - 1;
+  for (let x = 0; x < W - 1; x++) {
+    grid[y][x] = randomColor();
+  }
+  grid[y][W - 1] = null; // дырка
+
+  drawGrid();
+
+  // бросаем блок сверху в дырку
+  await dropBlock(W - 1, y, randomColor());
+
+  // взрыв
+  await explodeLine(y);
+
+  // очистка линии
+  grid.splice(y, 1);
+  grid.unshift(Array(W).fill(null));
+  drawGrid();
+
+  // выплата
+  const win = bet * (5 + Math.floor(Math.random() * 10));
+  balance += win;
+  document.getElementById("win").textContent = "Выигрыш: " + win;
+  document.getElementById("balance").textContent = "Баланс: " + balance + " FUN";
+}
+
+/* ------------------------------
+   ПРОИГРЫШНЫЙ РАУНД
+------------------------------ */
+
+async function playLosingRound() {
+  createGrid();
+  drawGrid();
+
+  // хаотично бросаем блоки сверху
+  for (let i = 0; i < 40; i++) {
+    const x = Math.floor(Math.random() * W);
+    const color = randomColor();
+
+    let y = 0;
+    while (y + 1 < H && !grid[y+1][x]) y++;
+
+    await dropBlock(x, y, color);
+  }
+
+  document.getElementById("win").textContent = "Выигрыш: 0";
+}
+
+/* ------------------------------
+   ИНТЕРФЕЙС
+------------------------------ */
+
+document.getElementById("startBtn").onclick = async () => {
+  if (running) return;
+  running = true;
+
+  const bet = parseInt(document.getElementById("betSelect").value);
+
+  if (balance < bet) {
+    alert("Недостаточно FUN");
+    running = false;
+    return;
+  }
+
+  balance -= bet;
+  document.getElementById("balance").textContent = "Баланс: " + balance + " FUN";
+  document.getElementById("win").textContent = "Выигрыш: 0";
+
+  const isWin = Math.random() < WIN_PROBABILITY;
+
+  if (isWin) {
+    await playWinningRound(bet);
+  } else {
+    await playLosingRound();
+  }
+
+  running = false;
+};
+</script>
+
+</body>
+</html>
